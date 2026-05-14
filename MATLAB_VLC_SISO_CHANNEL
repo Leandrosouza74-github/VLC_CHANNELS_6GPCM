@@ -1,0 +1,304 @@
+%% ============================================
+% SISTEMA VLC COMPLETO: GEOMETRIA + POTÊNCIA + PERFIL + INFORMAÇÕES
+% ============================================
+
+clear; clc; close all;
+
+% Configuração global para qualidade de publicação
+set(0, 'DefaultAxesFontName', 'Times New Roman');
+set(0, 'DefaultTextFontName', 'Times New Roman');
+set(0, 'DefaultAxesFontSize', 10);
+set(0, 'DefaultTextFontSize', 10);
+
+%% ===== PARÂMETROS DA SALA =====
+lx = 4;      % Comprimento (eixo X) em metros
+ly = 4;      % Largura (eixo Y) em metros  
+lz = 3;      % Altura (eixo Z) em metros
+
+%% ===== POSIÇÕES =====
+Tx_pos = [0, 0, lz];     % LED no centro do teto (x=0, y=0, z=3m)
+Rx_pos = [1, 1, 0.85];   % Detector na mesa (x=1m, y=1m, z=0.85m)
+
+%% ===== PARÂMETROS DO SISTEMA =====
+theta_half = 70;                    % Semi-ângulo de meia potência (graus)
+m = -log10(2)/log10(cosd(theta_half));  % Ordem Lambertiana
+P_tx = 20;                          % Potência óptica transmitida (W)
+
+% Parâmetros do Fotodetector
+A_det = 1e-4;                       % Área efetiva (m²)
+FOV_deg = 60;                       % Campo de visão (graus)
+FOV_rad = deg2rad(FOV_deg);
+T_s = 1;
+n_lens = 1.5;
+G_con = (n_lens^2)/(sin(FOV_rad)^2);
+
+fprintf('\n╔══════════════════════════════════════════════════════════════╗\n');
+fprintf('║                 SISTEMA VLC - SIMULAÇÃO COMPLETA              ║\n');
+fprintf('╚══════════════════════════════════════════════════════════════╝\n');
+
+%% ===== DEFINIÇÃO DA GRADE DE RECEPÇÃO =====
+resolucao = 0.05;
+x = -lx/2 : resolucao : lx/2;
+y = -ly/2 : resolucao : ly/2;
+[X_grid, Y_grid] = meshgrid(x, y);
+Nx = length(x);
+Ny = length(y);
+fprintf('Grid: %d x %d pontos (resolução %.2f m)\n', Nx, Ny, resolucao);
+
+%% ===== CÁLCULO DO CANAL =====
+% Distância 3D
+D_los = sqrt((X_grid - Tx_pos(1)).^2 + (Y_grid - Tx_pos(2)).^2 + (Rx_pos(3) - Tx_pos(3)).^2);
+cos_angle = abs(Rx_pos(3) - Tx_pos(3)) ./ D_los;
+
+% Ganho LOS
+H_los = ((m+1) * A_det ./ (2 * pi * D_los.^2)) .* (cos_angle.^(m+1));
+H_los(cos_angle < cosd(FOV_deg)) = 0;
+
+% Reflexões (simplificado)
+H_nlos = H_los * 0.05;
+H_total = H_los + H_nlos;
+
+% Potência recebida
+P_rec = P_tx * H_total * T_s * G_con;
+P_rec_dBm = 10 * log10(P_rec * 1000);
+
+% Índices do receptor
+[~, idx_rx_x] = min(abs(x - Rx_pos(1)));
+[~, idx_rx_y] = min(abs(y - Rx_pos(2)));
+P_rec_rx = P_rec(idx_rx_y, idx_rx_x);
+P_rec_rx_dBm = P_rec_dBm(idx_rx_y, idx_rx_x);
+
+dist_tx_rx = sqrt((Rx_pos(1)-Tx_pos(1))^2 + (Rx_pos(2)-Tx_pos(2))^2 + (Rx_pos(3)-Tx_pos(3))^2);
+
+fprintf('Potência recebida no RX: %.2f dBm (%.2f μW)\n', P_rec_rx_dBm, P_rec_rx*1e6);
+
+%% ============================================
+% GRÁFICO 1: GEOMETRIA DO SISTEMA VLC (3D)
+% ============================================
+
+% Paleta de cores
+cores = struct();
+cores.parede = [0.5, 0.5, 0.5];
+cores.tx = [0.9, 0.2, 0.2];
+cores.tx_glow = [1, 0.3, 0.3];
+cores.rx = [0.1, 0.5, 0.9];
+cores.link = [0.2, 0.7, 0.3];
+cores.seta_tx = [0.8, 0.1, 0.1];
+cores.seta_rx = [0.1, 0.4, 0.8];
+cores.fov = [0.3, 0.6, 0.9];
+cores.led_beam = [1, 0.5, 0.2];
+
+fig1 = figure('Name', 'Geometria do Sistema VLC', ...
+              'Position', [50, 500, 1000, 700], ...
+              'Color', 'white');
+hold on; grid on; axis equal;
+xlim([-lx/2-0.8, lx/2+0.8]);
+ylim([-ly/2-0.8, ly/2+0.8]);
+zlim([-0.8, lz+0.8]);
+view(40, 30);
+
+% Chão
+[X_floor, Y_floor] = meshgrid(linspace(-lx/2, lx/2, 50), linspace(-ly/2, ly/2, 50));
+surf(X_floor, Y_floor, zeros(size(X_floor)), 'FaceAlpha', 0.1, 'EdgeColor', 'none', 'FaceColor', cores.parede);
+
+% Arestas da sala
+plot3([-lx/2, lx/2], [-ly/2, -ly/2], [0, 0], 'Color', cores.parede, 'LineWidth', 1.5);
+plot3([-lx/2, lx/2], [ly/2, ly/2], [0, 0], 'Color', cores.parede, 'LineWidth', 1.5);
+plot3([-lx/2, -lx/2], [-ly/2, ly/2], [0, 0], 'Color', cores.parede, 'LineWidth', 1.5);
+plot3([lx/2, lx/2], [-ly/2, ly/2], [0, 0], 'Color', cores.parede, 'LineWidth', 1.5);
+plot3([-lx/2, lx/2], [-ly/2, -ly/2], [lz, lz], 'Color', cores.parede, 'LineWidth', 1, 'LineStyle', '--');
+plot3([-lx/2, lx/2], [ly/2, ly/2], [lz, lz], 'Color', cores.parede, 'LineWidth', 1, 'LineStyle', '--');
+plot3([-lx/2, -lx/2], [-ly/2, ly/2], [lz, lz], 'Color', cores.parede, 'LineWidth', 1, 'LineStyle', '--');
+plot3([lx/2, lx/2], [-ly/2, ly/2], [lz, lz], 'Color', cores.parede, 'LineWidth', 1, 'LineStyle', '--');
+
+% Pilares
+plot3([-lx/2, -lx/2], [-ly/2, -ly/2], [0, lz], 'Color', cores.parede, 'LineWidth', 0.5, 'LineStyle', ':');
+plot3([lx/2, lx/2], [-ly/2, -ly/2], [0, lz], 'Color', cores.parede, 'LineWidth', 0.5, 'LineStyle', ':');
+plot3([-lx/2, -lx/2], [ly/2, ly/2], [0, lz], 'Color', cores.parede, 'LineWidth', 0.5, 'LineStyle', ':');
+plot3([lx/2, lx/2], [ly/2, ly/2], [0, lz], 'Color', cores.parede, 'LineWidth', 0.5, 'LineStyle', ':');
+
+% LED
+[Xs, Ys, Zs] = sphere(20);
+surf(Xs*0.18 + Tx_pos(1), Ys*0.18 + Tx_pos(2), Zs*0.18 + Tx_pos(3), ...
+     'FaceAlpha', 0.2, 'EdgeColor', 'none', 'FaceColor', cores.tx_glow);
+h_tx = plot3(Tx_pos(1), Tx_pos(2), Tx_pos(3), 'o', 'MarkerSize', 16, ...
+             'MarkerFaceColor', cores.tx, 'MarkerEdgeColor', 'k', 'LineWidth', 1.5);
+text(Tx_pos(1), Tx_pos(2), Tx_pos(3)+0.35, 'Tx', 'Color', cores.tx, 'FontSize', 12, 'FontWeight', 'bold', ...
+     'HorizontalAlignment', 'center', 'BackgroundColor', 'white');
+
+% Detector
+h_rx = plot3(Rx_pos(1), Rx_pos(2), Rx_pos(3), 's', 'MarkerSize', 12, ...
+             'MarkerFaceColor', cores.rx, 'MarkerEdgeColor', 'k', 'LineWidth', 1.5);
+text(Rx_pos(1), Rx_pos(2), Rx_pos(3)-0.3, 'Rx', 'Color', cores.rx, 'FontSize', 12, 'FontWeight', 'bold', ...
+     'HorizontalAlignment', 'center', 'BackgroundColor', 'white');
+
+% Link LOS
+h_link = plot3([Tx_pos(1), Rx_pos(1)], [Tx_pos(2), Rx_pos(2)], [Tx_pos(3), Rx_pos(3)], ...
+               'Color', cores.link, 'LineWidth', 2.5, 'LineStyle', '-');
+t = 0.25:0.25:0.75;
+for tt = t
+    x_int = Tx_pos(1) + tt*(Rx_pos(1)-Tx_pos(1));
+    y_int = Tx_pos(2) + tt*(Rx_pos(2)-Tx_pos(2));
+    z_int = Tx_pos(3) + tt*(Rx_pos(3)-Tx_pos(3));
+    plot3(x_int, y_int, z_int, '>', 'Color', cores.link, 'MarkerSize', 7, 'MarkerFaceColor', cores.link);
+end
+
+% Setas de orientação
+h_arrow_tx = quiver3(Tx_pos(1), Tx_pos(2), Tx_pos(3), 0, 0, -0.8, 'Color', cores.seta_tx, ...
+                     'LineWidth', 2, 'MaxHeadSize', 0.5, 'AutoScale', 'off');
+h_arrow_rx = quiver3(Rx_pos(1), Rx_pos(2), Rx_pos(3), 0, 0, 0.8, 'Color', cores.seta_rx, ...
+                     'LineWidth', 2, 'MaxHeadSize', 0.5, 'AutoScale', 'off');
+
+% FOV do Rx
+angulo_fov_rad = deg2rad(FOV_deg);
+altura_cone_fov = 0.8;
+raio_cone_fov = altura_cone_fov * tan(angulo_fov_rad/2);
+theta_c = linspace(0, 2*pi, 30);
+x_cone_fov = Rx_pos(1) + raio_cone_fov * cos(theta_c);
+y_cone_fov = Rx_pos(2) + raio_cone_fov * sin(theta_c);
+z_cone_fov_top = ones(size(theta_c)) * (Rx_pos(3) + altura_cone_fov);
+
+for altura = linspace(0, altura_cone_fov, 8)
+    raio_atual = altura * tan(angulo_fov_rad/2);
+    x_atual = Rx_pos(1) + raio_atual * cos(theta_c);
+    y_atual = Rx_pos(2) + raio_atual * sin(theta_c);
+    z_atual = ones(size(theta_c)) * (Rx_pos(3) + altura);
+    patch(x_atual, y_atual, z_atual, cores.fov, 'FaceAlpha', 0.08, 'EdgeColor', 'none');
+end
+h_fov_edge = plot3(x_cone_fov, y_cone_fov, z_cone_fov_top, 'Color', cores.fov, 'LineWidth', 1.2, 'LineStyle', '-');
+
+% Cone de iluminação do LED
+angulo_led_rad = deg2rad(theta_half);
+raio_led_base = lz * tan(angulo_led_rad/2);
+[Theta_grid, R_grid] = meshgrid(theta_c, linspace(0, 1, 20));
+X_cone_beam = Tx_pos(1) + R_grid * raio_led_base .* cos(Theta_grid);
+Y_cone_beam = Tx_pos(2) + R_grid * raio_led_base .* sin(Theta_grid);
+Z_cone_beam = lz * (1 - R_grid);
+surf(X_cone_beam, Y_cone_beam, Z_cone_beam, 'FaceColor', cores.led_beam, 'FaceAlpha', 0.12, 'EdgeColor', 'none');
+
+x_led_base = Tx_pos(1) + raio_led_base * cos(theta_c);
+y_led_base = Tx_pos(2) + raio_led_base * sin(theta_c);
+h_beam_edge = plot3(x_led_base, y_led_base, zeros(size(theta_c)), 'Color', cores.led_beam, 'LineWidth', 1.5, 'LineStyle', '-');
+plot3(x_led_base, y_led_base, zeros(size(theta_c)), 'Color', cores.led_beam, 'LineWidth', 2, 'LineStyle', '-');
+
+for i = 1:5:length(theta_c)
+    plot3([Tx_pos(1), x_led_base(i)], [Tx_pos(2), y_led_base(i)], [lz, 0], ...
+          'Color', cores.led_beam, 'LineWidth', 0.8, 'LineStyle', ':');
+end
+
+% Labels
+xlabel('X (m)', 'FontSize', 12, 'FontWeight', 'bold');
+ylabel('Y (m)', 'FontSize', 12, 'FontWeight', 'bold');
+zlabel('Z (m)', 'FontSize', 12, 'FontWeight', 'bold');
+
+% Legenda
+h_fov_legend = patch('XData', [0 1 1 0], 'YData', [0 0 1 1], 'ZData', [0 0 0 0], ...
+                     'FaceColor', cores.fov, 'FaceAlpha', 0.3, 'EdgeColor', 'none', 'Visible', 'off');
+h_beam_legend = patch('XData', [0 1 1 0], 'YData', [0 0 1 1], 'ZData', [0 0 0 0], ...
+                      'FaceColor', cores.led_beam, 'FaceAlpha', 0.3, 'EdgeColor', 'none', 'Visible', 'off');
+
+legend([h_tx, h_rx, h_link, h_arrow_tx, h_arrow_rx, h_fov_legend, h_fov_edge, h_beam_legend, h_beam_edge], ...
+       {'LED (Tx)', 'Detector (Rx)', 'Link LOS', 'Orientação Tx (↓)', 'Orientação Rx (↑)', ...
+        'FOV do Rx', 'Limite do FOV', 'Iluminação do Tx', 'Limite do feixe'}, ...
+       'Location', 'eastoutside', 'FontSize', 9, 'Box', 'on', 'Color', 'white');
+
+set(gca, 'FontSize', 11, 'LineWidth', 1, 'GridAlpha', 0.15, 'GridLineStyle', ':', 'Box', 'on', 'TickDir', 'out');
+hold off;
+
+%% ============================================
+% GRÁFICO 2: MAPA DE POTÊNCIA 3D
+% ============================================
+fig2 = figure('Name', 'Distribuição de Potência 3D', 'Position', [50, 50, 900, 650], 'Color', 'white');
+surf(X_grid, Y_grid, P_rec_dBm, 'EdgeColor', 'none', 'FaceAlpha', 0.95);
+colormap('hot');
+cbar = colorbar('eastoutside');
+cbar.Label.String = 'Potência Recebida (dBm)';
+cbar.Label.FontSize = 11;
+title('Distribuição de Potência Recebida - VLC Indoor', 'FontSize', 14, 'FontWeight', 'bold');
+xlabel('X (m)', 'FontSize', 12, 'FontWeight', 'bold');
+ylabel('Y (m)', 'FontSize', 12, 'FontWeight', 'bold');
+zlabel('Potência (dBm)', 'FontSize', 12, 'FontWeight', 'bold');
+grid on; view(50, 35);
+hold on;
+plot3(Tx_pos(1), Tx_pos(2), min(P_rec_dBm(:)), 'ro', 'MarkerSize', 8, 'MarkerFaceColor', 'r');
+plot3(Rx_pos(1), Rx_pos(2), P_rec_dBm(idx_rx_y, idx_rx_x), 'bs', 'MarkerSize', 10, 'MarkerFaceColor', 'b');
+legend('Mapa de Potência', 'TX (projetado)', 'RX', 'Location', 'northeast');
+hold off;
+
+%% ============================================
+% GRÁFICO 3: PERFIL DE POTÊNCIA (CORTE y=0)
+% ============================================
+fig3 = figure('Name', 'Perfil de Potência', 'Position', [980, 50, 800, 500], 'Color', 'white');
+
+[~, idx_y_zero] = min(abs(y - 0));
+perfil_total = P_rec_dBm(idx_y_zero, :);
+perfil_los = 10*log10(P_tx * H_los(idx_y_zero, :) * T_s * G_con * 1000);
+perfil_nlos = 10*log10(P_tx * H_nlos(idx_y_zero, :) * T_s * G_con * 1000);
+
+hold on;
+fill([x, fliplr(x)], [perfil_total, fliplr(perfil_total)], [0.9, 0.7, 0.4], 'FaceAlpha', 0.15, 'EdgeColor', 'none');
+p3 = plot(x, perfil_total, '-', 'Color', [0.2, 0.3, 0.4], 'LineWidth', 3);
+p1 = plot(x, perfil_los, '-', 'Color', [0.2, 0.7, 0.3], 'LineWidth', 2);
+p2 = plot(x, perfil_nlos, '--', 'Color', [0.9, 0.4, 0.2], 'LineWidth', 2);
+xline(Tx_pos(1), '--', 'Color', [0.9, 0.2, 0.2], 'LineWidth', 1.5);
+xline(Rx_pos(1), '--', 'Color', [0.1, 0.5, 0.9], 'LineWidth', 1.5);
+
+[peak_val, peak_idx] = max(perfil_total);
+plot(x(peak_idx), peak_val, '^', 'MarkerSize', 10, 'MarkerFaceColor', [0.9, 0.6, 0.2], 'MarkerEdgeColor', 'k');
+
+xlim([-2.2, 2.2]); ylim([-14, 12]);
+grid on;
+xlabel('X (m)', 'FontSize', 12, 'FontWeight', 'bold');
+ylabel('Potência (dBm)', 'FontSize', 12, 'FontWeight', 'bold');
+title('Perfil de Potência ao longo do eixo X (y = 0)', 'FontSize', 13, 'FontWeight', 'bold');
+
+legend([p3, p1, p2], {'Potência Total', 'Componente LOS', 'Componente NLoS'}, ...
+       'Location', 'southwest', 'FontSize', 10, 'Box', 'on');
+hold off;
+
+%% ============================================
+% GRÁFICO 4: PAINEL DE INFORMAÇÕES
+% ============================================
+fig4 = figure('Name', 'Informações do Sistema', 'Position', [850, 550, 450, 500], 'Color', 'white');
+axis off;
+
+info_text = {
+    '╔══════════════════════════════════════╗';
+    '║       SISTEMA VLC - RESUMO           ║';
+    '╚══════════════════════════════════════╝';
+    ' ';
+    '🔴 TRANSMISSOR (LED)';
+    sprintf('   Posição: [%.2f, %.2f, %.2f] m', Tx_pos(1), Tx_pos(2), Tx_pos(3));
+    sprintf('   Potência: %.1f W', P_tx);
+    sprintf('   Ângulo meia-potência: %.1f°', theta_half);
+    sprintf('   Ordem Lambertiana: %.2f', m);
+    ' ';
+    '🔵 RECEPTOR (Detector)';
+    sprintf('   Posição: [%.2f, %.2f, %.2f] m', Rx_pos(1), Rx_pos(2), Rx_pos(3));
+    sprintf('   Área: %.2f cm²', A_det*1e4);
+    sprintf('   FOV: %.1f°', FOV_deg);
+    sprintf('   Ganho concentrador: %.2f', G_con);
+    ' ';
+    '🟢 LINK';
+    sprintf('   Distância TX-RX: %.2f m', dist_tx_rx);
+    sprintf('   Potência recebida: %.2f dBm', P_rec_rx_dBm);
+    sprintf('   Potência recebida: %.2f μW', P_rec_rx*1e6);
+    ' ';
+    '📊 ESTATÍSTICAS';
+    sprintf('   Potência máxima: %.2f dBm', max(P_rec_dBm(:)));
+    sprintf('   Potência média: %.2f dBm', mean(P_rec_dBm(:)));
+    sprintf('   Potência mínima: %.2f dBm', min(P_rec_dBm(:)));
+};
+
+text(0.05, 0.95, info_text, 'FontName', 'Courier New', 'FontSize', 10, 'VerticalAlignment', 'top');
+title('Resumo do Sistema VLC', 'FontSize', 14, 'FontWeight', 'bold');
+
+%% ===== MENSAGEM FINAL =====
+fprintf('\n╔══════════════════════════════════════════════════════════════╗\n');
+fprintf('║              ✅ SIMULAÇÃO COMPLETA CONCLUÍDA                  ║\n');
+fprintf('╚══════════════════════════════════════════════════════════════╝\n');
+fprintf('\n📊 FIGURAS GERADAS:\n');
+fprintf('   ■ Figura 1: Geometria 3D do sistema VLC\n');
+fprintf('   ■ Figura 2: Mapa de potência 3D\n');
+fprintf('   ■ Figura 3: Perfil de potência (corte y=0)\n');
+fprintf('   ■ Figura 4: Painel de informações\n');
